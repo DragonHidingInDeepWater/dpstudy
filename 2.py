@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 from sklearn.metrics import accuracy_score
@@ -31,29 +30,38 @@ y_test_torch = torch.tensor(y_test.values).to(device)
 class Classifier(nn.Module):
     def __init__(self, input_size):
         super().__init__()
-        self.hidden_1 = nn.Linear(input_size, 10);
-        self.hidden_2 = nn.Linear(10, 10);
-        self.hidden_3 = nn.Linear(10, 10);
-        # self.hidden_4 = nn.Linear(10,10);
-        self.output = nn.Linear(10, 2);
+        self.hidden_1 = nn.Linear(input_size, 100);
+        self.hidden_2 = nn.Linear(100, 100);
+        self.hidden_3 = nn.Linear(100, 50);
+        self.hidden_4 = nn.Linear(50,50);
+        self.output = nn.Linear(50, 2);
+        '''
+        在 PyTorch 中，nn.Dropout 是一个用于减少神经网络过拟合的模块。
+        self.dropout = nn.Dropout(p=0.1) 这一行代码创建了一个 dropout 层实例，
+        其中参数 p=0.1 指定了 dropout 的比率，即在前向传播过程中，每个神经元有 10% 的概率被临时“关闭”或“丢弃”。
+        Dropout 的作用
+        Dropout 技术是一种正则化方法，旨在减少神经网络的过拟合。它通过在训练过程中随机地、暂时地将一部分神经元的输出设置为 0，
+        以此来模拟神经网络的稀疏性。这样做的目的是迫使网络的其他部分学习更加鲁棒和独立的特征，减少神经元间的相互依赖，从而提高模型的泛化能力。
+        '''
+        self.dropout = nn.Dropout(p=0.1)
     def forward(self, x):
-        o = F.relu(self.hidden_1(x));
-        o = F.relu(self.hidden_2(o));
-        o = F.relu(self.hidden_3(o));
-        # o = F.relu(self.hidden_4(o));
+        o = self.dropout(F.relu(self.hidden_1(x)));
+        o = self.dropout(F.relu(self.hidden_2(o)));
+        o = self.dropout(F.relu(self.hidden_3(o)));
+        o = self.dropout(F.relu(self.hidden_4(o)));
         result = F.log_softmax(self.output(o) ,dim = 1);
         return  result;
 
 model = Classifier(X_train.shape[1]).to(device);
 criterion = nn.NLLLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001);
-epochs = 50
+epochs = 4000
 batch_size = 128
 
 
-train_losses, dev_losses, \
-    train_acc, dev_acc = [], [], [], []
-for e in range(epochs):
+train_losses, dev_losses, train_acc, dev_acc = [], [], [], []
+x_axis = []
+for e in range(1, epochs+1):
     X_, y_ = shuffle(X_train, y_train)
     running_loss = 0
     running_acc = 0
@@ -90,6 +98,7 @@ for e in range(epochs):
     dev_loss = 0
     acc = 0
     with torch.no_grad():
+        model.eval();
         pred_dev = model(X_dev_torch)
         dev_loss = criterion(pred_dev, y_dev_torch)
         ps_dev = torch.exp(pred_dev)
@@ -97,21 +106,30 @@ for e in range(epochs):
         top_class_dev_cpu = top_class_dev.cpu()
         y_dev_torch_cpu = y_dev_torch.cpu()
         acc = accuracy_score(y_dev_torch_cpu, top_class_dev_cpu.numpy())
-
-    train_losses.append(running_loss/iterations)
-    dev_losses.append(dev_loss.cpu())
-    train_acc.append(running_acc/iterations)
-    dev_acc.append(acc)
-    print("Epoch: {}/{}.. ".format(e+1, epochs), "Training Loss: {:.3f}.. ".format(running_loss/iterations), "Validation Loss: {:.3f}.. ".format(dev_loss), "Training Accuracy: {:.3f}.. ".format(running_acc/iterations),"Validation Accuracy: {:.3f}".format(acc))
+    model.train()
+    if e%50 == 0 or e == 1:
+        x_axis.append(e)
+        train_losses.append(running_loss/iterations)
+        dev_losses.append(dev_loss.cpu())
+        train_acc.append(running_acc/iterations)
+        dev_acc.append(acc)
+        print("Epoch: {}/{}.. ".format(e+1, epochs), "Training Loss: {:.3f}.. ".format(running_loss/iterations), "Validation Loss: {:.3f}.. ".format(dev_loss), "Training Accuracy: {:.3f}.. ".format(running_acc/iterations),"Validation Accuracy: {:.3f}".format(acc))
 
 fig = plt.figure(figsize=(15, 5))
-plt.plot(train_losses, label='Training loss')
-plt.plot(dev_losses, label='Validation loss')
+plt.plot(x_axis, train_losses, label='Training loss')
+plt.plot(x_axis, dev_losses, label='Validation loss')
 plt.legend(frameon=False, fontsize=15)
 plt.show()
 
 fig = plt.figure(figsize=(15, 5))
-plt.plot(train_acc, label="Training accuracy")
-plt.plot(dev_acc, label="Validation accuracy")
+plt.plot(x_axis, train_acc, label="Training accuracy")
+plt.plot(x_axis, dev_acc, label="Validation accuracy")
 plt.legend(frameon=False, fontsize=15)
 plt.show()
+
+model.eval()
+test_pred = model(X_test_torch)
+test_pred = torch.exp(test_pred)
+top_p, top_class_test = test_pred.topk(1, dim=1)
+acc_test = accuracy_score(y_test_torch, top_class_test)
+print(acc_test)
